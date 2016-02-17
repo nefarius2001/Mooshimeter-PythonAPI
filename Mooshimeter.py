@@ -363,7 +363,7 @@ class Mooshimeter(object):
         # Oversampling adds 1 ENOB per factor of 4
         enob += buffer_depth_log2/2.0
 
-        if(channel == 0 and (self.meter_settings.chset[0] & self.meter_settings.METER_CH_SETTINGS_INPUT_MASK) == 0 ):
+        if(self.meter_info.pcp_version == 7 and channel == 0 and (self.meter_settings.chset[0] & self.meter_settings.METER_CH_SETTINGS_INPUT_MASK) == 0 ):
             # This is compensation for a bug in RevH, where current sense chopper noise dominates
             enob -= 2
         return enob
@@ -393,12 +393,26 @@ class Mooshimeter(object):
         :param channel:       The channel index (0 or 1)
         :return:  Voltage at AFE input [V]
         """
-        # This returns the input voltage to the ADC,
-        Vref = 2.5
         pga_lookup = [6,1,2,3,4,8,12]
-        pga_setting = self.meter_settings.chset[channel] >> 4
+        # This returns the input voltage to the ADC,
+        print 'pcb_version = ' , self.meter_info.pcb_version
+        if(self.meter_info.pcb_version==7):
+            Vref=2.5
+        elif(self.meter_info.pcb_version==8):
+            Vref=2.42
+        else:
+            raise RuntimeError('forgotten case for self.meter_info.pcb_version')
+            
+        if(channel==0):
+            pga_setting = self.meter_settings.chset[channel] >> 4
+        elif(channel==1):
+            pga_setting = self.meter_settings.chset[channel] >> 4
+        else:
+            raise RuntimeError('forgotten case for channel')
+        
         pga_gain = pga_lookup[pga_setting]
         return (reading_lsb/float(1<<23))*Vref/pga_gain
+        
 
     def adcVoltageToHV(self, adc_voltage):
         """
@@ -426,8 +440,15 @@ class Mooshimeter(object):
         :param adc_voltage:   Voltage at the AFE [V]
         :return:              Current through the A terminal [A]
         """
-        rs = 1e-3
-        amp_gain = 80.0
+        
+        if(self.meter_info.pcb_version==7):
+            rs = 1e-3;
+            amp_gain = 80.0;
+        elif(self.meter_info.pcb_version==8):
+            rs = 10e-3;
+            amp_gain = 1.0;
+        else:
+            raise RuntimeError('forgotten case for self.meter_info.pcb_version')
         return adc_voltage/(amp_gain*rs)
 
     def adcVoltageToTemp(self, adc_voltage):
@@ -467,10 +488,17 @@ class Mooshimeter(object):
         if channel_setting == 0x00:
             # Regular electrode input
             if ch == 0:
-                # CH1 offset is treated as an extrinsic offset because it's dominated by drift in the isns amp
-                adc_volts = self.lsbToADCInVoltage(lsb,ch)
-                adc_volts -= self.offsets[0]
-                return self.adcVoltageToCurrent(adc_volts)
+                if(self.meter_info.pcb_version==7):
+                    # CH1 offset is treated as an extrinsic offset because it's dominated by drift in the isns amp
+                    adc_volts = self.lsbToADCInVoltage(lsb,ch)
+                    adc_volts -= self.offsets[0]
+                    return self.adcVoltageToCurrent(adc_volts)
+                elif(self.meter_info.pcb_version==8):
+                    lsb -= self.offsets[0]
+                    adc_volts = self.lsbToADCInVoltage(lsb,ch)
+                    return self.adcVoltageToCurrent(adc_volts)
+                else:
+                    raise RuntimeError('forgotten case for self.meter_info.pcb_version')
             elif ch == 1:
                 # CH2 offset is treated as an intrinsic offset because it's dominated by offset in the ADC itself
                 lsb -= self.offsets[1]
@@ -487,20 +515,26 @@ class Mooshimeter(object):
             isrc_current = self.getIsrcCurrent()
             if isrc_current != 0:
                 # Current source is on, apply compensation for PTC drop
-                adc_volts = self.lsbToADCInVoltage(lsb,ch)
-                adc_volts -= ptc_resistance*isrc_current
-                adc_volts -= self.offsets[2]*isrc_current
+                if(self.meter_info.pcb_version==7):
+                    adc_volts = self.lsbToADCInVoltage(lsb,ch)
+                    adc_volts -= ptc_resistance*isrc_current
+                    adc_volts -= self.offsets[2]*isrc_current
+                    ohms=adc_volts/isrc_current
+                elif(self.meter_info.pcb_version==8):
+                    raise RuntimeError('to be implemented from android code MooshimeterDevice.java, line 1442')
+                else:
+                    raise RuntimeError('forgotten case for self.meter_info.pcb_version')
             else:
                 # Current source is off, offset is intrinsic
                 lsb -= self.offsets[2]
                 adc_volts = self.lsbToADCInVoltage(lsb,ch)
             if self.disp_ch3_mode == self.CH3_MODES.RESISTANCE:
                 # Convert to Ohms
-                return adc_volts/isrc_current
+                return ohms
             else:
                 return adc_volts
         else:
-            raise
+            raise RuntimeError('Unrecognized channel setting')
 
     def getDescriptor(self,channel):
         """
