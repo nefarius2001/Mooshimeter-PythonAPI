@@ -395,7 +395,6 @@ class Mooshimeter(object):
         """
         pga_lookup = [6,1,2,3,4,8,12]
         # This returns the input voltage to the ADC,
-        print 'pcb_version = ' , self.meter_info.pcb_version
         if(self.meter_info.pcb_version==7):
             Vref=2.5
         elif(self.meter_info.pcb_version==8):
