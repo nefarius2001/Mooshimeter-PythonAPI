@@ -57,6 +57,13 @@ if __name__=="__main__":
     # Connect to the meter with the strongest signal
     meters = sorted(meters, key=attrgetter('rssi'),reverse=True)
     connectToMeterAndStream(meters[0])
-    while True:
-        # This call checks the serial port and processes new data
-        BGWrapper.idle()
+    
+    try:
+        while True:
+            # This call checks the serial port and processes new data
+            BGWrapper.idle()
+    except KeyboardInterrupt:
+        print "BGWrapper.disconnect()"
+        BGWrapper.disconnect()
+        print "done"
+        pass
